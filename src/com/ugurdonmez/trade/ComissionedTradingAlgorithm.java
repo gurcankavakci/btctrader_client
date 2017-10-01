@@ -41,9 +41,9 @@ public class ComissionedTradingAlgorithm implements Runnable {
         Thread buyThread = new Thread(buy);
         buyThread.start();
 //
-//        ComissionedTradingAlgorithm sell = new ComissionedTradingAlgorithm(OrderType.SELL, lowestPriceForSell);
-//        Thread sellThread = new Thread(sell);
-//        sellThread.start();
+        ComissionedTradingAlgorithm sell = new ComissionedTradingAlgorithm(OrderType.SELL, lowestPriceForSell);
+        Thread sellThread = new Thread(sell);
+        sellThread.start();
     }
 
     @Override
@@ -53,6 +53,8 @@ public class ComissionedTradingAlgorithm implements Runnable {
         while (true) {
             try {
                 clearDataIfNeed();
+
+                if (!checkBalance()) continue;
 
                 if (!determineExchangeSpread()) continue;
 
@@ -241,7 +243,12 @@ public class ComissionedTradingAlgorithm implements Runnable {
         if (spread < exchangeSpread) {
             log(this.type + " için fiyat farki: " + spread + ", " + exchangeSpread + " den buyuk olmasi bekleniyor.");
             deleteOrders();
-            Thread.sleep(1000);
+            
+            if (spread < 0)
+                Thread.sleep(60000);
+            else
+                Thread.sleep(5000);
+
             return false;
         }
 
@@ -373,6 +380,40 @@ public class ComissionedTradingAlgorithm implements Runnable {
             log("Hesap bakiyesi alinamadi.");
         }
         return 0;
+    }
+
+    private boolean checkBalance() throws InterruptedException {
+        Optional<BalanceResult> btcTraderBalance = btcTraderClient.getBTCTraderBalance();
+        BalanceResult balanceResult;
+        if (btcTraderBalance.isPresent()) {
+            balanceResult = btcTraderBalance.get();
+            if (BUY.equals(this.type)) {
+                double fee = balanceResult.getMakerFeePercentage();
+                double money = balanceResult.getMoneyAvailable();
+                double moneyFee = round(money * fee, 2);
+                double moneyTax = round(moneyFee * taxRate, 2);
+                money = round(money - (moneyFee + moneyTax), 2);
+                if (money < 1) {
+                    log(type + " icin TL yok 10 dk bekleniyor...");
+                    Thread.sleep(600000);
+                    return false;
+                } else {
+                    return true;
+                }
+            } else if (SELL.equals(this.type)) {
+                if (balanceResult.getBitcoinAvailable() > 0) {
+                    return true;
+                } else {
+                    log(type + " icin BTC yok 10 dk bekleniyor...");
+                    Thread.sleep(600000);
+                    return false;
+                }
+            }
+        } else {
+            log("Hesap bakiyesi alinamadi.");
+            return false;
+        }
+        return false;
     }
 
     private void log(String msg, Exception e) {
